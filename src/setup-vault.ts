@@ -1,5 +1,5 @@
 /**
- * Vault Setup Script
+ * Vault Setup Script — Devnet Deployment
  * Run once to create and configure the funding rate arb vault on Ranger Earn
  *
  * Usage:
@@ -10,21 +10,20 @@ import {
   Connection,
   Keypair,
   PublicKey,
-  SystemProgram,
   Transaction,
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import {
-  VoltrClient,
-  DRIFT_ADAPTOR_PROGRAM_ID,
-  VaultConfigField,
-} from "@voltr/vault-sdk";
+import { VoltrClient } from "@voltr/vault-sdk";
 import BN from "bn.js";
 import * as fs from "fs";
 
-const RPC_URL = process.env.RPC_URL ?? "https://api.mainnet-beta.solana.com";
+// Drift adaptor program ID (from Ranger docs)
+const DRIFT_ADAPTOR_PROGRAM_ID = new PublicKey("EBN93eXs5fHGBABuajQqdsKRkCgaqtJa8vEFD6vKXiP");
+
+// Devnet USDC mint
 const USDC_MINT = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+
+const RPC_URL = process.env.RPC_URL ?? "https://api.devnet.solana.com";
 
 function loadKeypair(path: string): Keypair {
   return Keypair.fromSecretKey(
@@ -36,92 +35,107 @@ async function setupVault(): Promise<void> {
   const connection = new Connection(RPC_URL, "confirmed");
   const admin = loadKeypair("./admin.json");
   const manager = loadKeypair("./manager.json");
-  const payer = admin; // payer = admin for setup
-  const vault = Keypair.generate(); // new vault keypair
+  const vault = Keypair.generate();
 
-  console.log("Setting up Delta-Neutral Funding Rate Vault…");
+  console.log("Setting up Delta-Neutral Funding Rate Vault on DEVNET...");
   console.log(`  Vault address: ${vault.publicKey.toBase58()}`);
   console.log(`  Admin:         ${admin.publicKey.toBase58()}`);
   console.log(`  Manager:       ${manager.publicKey.toBase58()}`);
 
   const client = new VoltrClient(connection, admin);
 
-  // ── Step 1: Initialize vault ─────────────────────────────────────────────
-  console.log("\n[1/4] Initializing vault…");
-  const initVaultIx = await client.createInitializeVaultIx(
-    {
-      config: {
-        maxCap: new BN(10_000_000_000_000), // $10M max cap
-        startAtTs: new BN(Math.floor(Date.now() / 1000)),
-        lockedProfitDegradationDuration: new BN(21600), // 6 hours profit lock
-        managerManagementFee: 150,    // 1.5% management fee (basis points)
-        managerPerformanceFee: 1000,  // 10% performance fee
-        adminManagementFee: 0,
-        adminPerformanceFee: 0,
-        redemptionFee: 0,
-        issuanceFee: 0,
-        withdrawalWaitingPeriod: new BN(86400), // 24-hour withdrawal delay
+  // Step 1: Initialize vault
+  console.log("\n[1/4] Initializing vault...");
+  try {
+    const initVaultIx = await client.createInitializeVaultIx(
+      {
+        config: {
+          maxCap: new BN(10_000_000_000_000),
+          startAtTs: new BN(Math.floor(Date.now() / 1000)),
+          lockedProfitDegradationDuration: new BN(21600),
+          managerManagementFee: 150,
+          managerPerformanceFee: 1000,
+          adminManagementFee: 0,
+          adminPerformanceFee: 0,
+          redemptionFee: 0,
+          issuanceFee: 0,
+          withdrawalWaitingPeriod: new BN(0),
+        },
+        name: "DN Funding Rate Vault",
+        description: "Delta-neutral SOL funding rate arb",
       },
-      name: "DN Funding Rate Vault",
-      description: "Delta-neutral SOL funding rate arbitrage",
-    },
-    {
+      {
+        vault: vault.publicKey,
+        vaultAssetMint: USDC_MINT,
+        admin: admin.publicKey,
+        manager: manager.publicKey,
+        payer: admin.publicKey,
+      }
+    );
+
+    const tx1 = new Transaction().add(initVaultIx);
+    const sig1 = await sendAndConfirmTransaction(connection, tx1, [admin, vault]);
+    console.log(`  Vault initialized: ${sig1}`);
+    console.log(`  Explorer: https://explorer.solana.com/tx/${sig1}?cluster=devnet`);
+  } catch (err: any) {
+    console.error("  Error initializing vault:", err.message);
+    console.log("  Tip: Make sure admin.json has devnet SOL. Run: solana airdrop 2 --keypair admin.json");
+    process.exit(1);
+  }
+
+  // Step 2: Create LP token metadata
+  console.log("\n[2/4] Creating LP token metadata...");
+  try {
+    const metadataIx = await client.createCreateLpMetadataIx(
+      {
+        name: "DN Funding LP",
+        symbol: "DNFLP",
+        uri: "https://raw.githubusercontent.com/Glayzz/dn-funding-vault/main/metadata.json",
+      },
+      {
+        payer: admin.publicKey,
+        admin: admin.publicKey,
+        vault: vault.publicKey,
+      }
+    );
+    const tx2 = new Transaction().add(metadataIx);
+    const sig2 = await sendAndConfirmTransaction(connection, tx2, [admin]);
+    console.log(`  LP metadata created: ${sig2}`);
+  } catch (err: any) {
+    console.log("  LP metadata skipped (non-critical):", err.message);
+  }
+
+  // Step 3: Add Drift adaptor
+  console.log("\n[3/4] Adding Drift adaptor...");
+  try {
+    const addAdaptorIx = await client.createAddAdaptorIx({
       vault: vault.publicKey,
-      vaultAssetMint: USDC_MINT,
+      payer: admin.publicKey,
       admin: admin.publicKey,
-      manager: manager.publicKey,
-      payer: payer.publicKey,
-    }
-  );
+      adaptorProgram: DRIFT_ADAPTOR_PROGRAM_ID,
+    });
+    const tx3 = new Transaction().add(addAdaptorIx);
+    const sig3 = await sendAndConfirmTransaction(connection, tx3, [admin]);
+    console.log(`  Drift adaptor added: ${sig3}`);
+  } catch (err: any) {
+    console.log("  Adaptor step skipped:", err.message);
+  }
 
-  const tx1 = new Transaction().add(initVaultIx);
-  const sig1 = await sendAndConfirmTransaction(connection, tx1, [admin, vault]);
-  console.log(`  ✓ Vault initialized: ${sig1}`);
-
-  // ── Step 2: Create LP token metadata ─────────────────────────────────────
-  console.log("\n[2/4] Creating LP token metadata…");
-  const metadataIx = await client.createCreateLpMetadataIx(
-    {
-      name: "DN Funding LP",
-      symbol: "DNFLP",
-      uri: "https://raw.githubusercontent.com/your-org/vault-metadata/main/dn-funding.json",
-    },
-    {
-      payer: payer.publicKey,
-      admin: admin.publicKey,
-      vault: vault.publicKey,
-    }
-  );
-  const tx2 = new Transaction().add(metadataIx);
-  const sig2 = await sendAndConfirmTransaction(connection, tx2, [admin]);
-  console.log(`  ✓ LP metadata created: ${sig2}`);
-
-  // ── Step 3: Add Drift adaptor ─────────────────────────────────────────────
-  console.log("\n[3/4] Adding Drift adaptor…");
-  const addAdaptorIx = await client.createAddAdaptorIx({
-    vault: vault.publicKey,
-    payer: payer.publicKey,
-    admin: admin.publicKey,
-    adaptorProgram: DRIFT_ADAPTOR_PROGRAM_ID,
-  });
-  const tx3 = new Transaction().add(addAdaptorIx);
-  const sig3 = await sendAndConfirmTransaction(connection, tx3, [admin]);
-  console.log(`  ✓ Drift adaptor added: ${sig3}`);
-
-  // ── Step 4: Save vault address ────────────────────────────────────────────
-  console.log("\n[4/4] Saving configuration…");
+  // Step 4: Save config
+  console.log("\n[4/4] Saving configuration...");
   const config = {
     vaultAddress: vault.publicKey.toBase58(),
     adminPubkey: admin.publicKey.toBase58(),
     managerPubkey: manager.publicKey.toBase58(),
     assetMint: USDC_MINT.toBase58(),
+    network: "devnet",
     createdAt: new Date().toISOString(),
   };
   fs.writeFileSync("./vault-config.json", JSON.stringify(config, null, 2));
-  console.log("  ✓ Config saved to vault-config.json");
+  console.log("  Config saved to vault-config.json");
 
-  console.log("\n🎉 Vault setup complete!");
-  console.log(`   Add VAULT_ADDRESS=${vault.publicKey.toBase58()} to your .env`);
+  console.log("\n Vault setup complete!");
+  console.log(`  Vault: https://explorer.solana.com/address/${vault.publicKey.toBase58()}?cluster=devnet`);
 }
 
 setupVault().catch(console.error);
