@@ -3,6 +3,6 @@
   "adminPubkey": "CScBvsSdmMr5hpF71o9ZfQtAyaxXu1A1Y8dtwe556kkk",
   "managerPubkey": "2DRap2KMm1MXodUCtqrZ27cQc8Fjji8EeBZo6oNRLb46",
   "assetMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-  "network": "devnet",
+  "network": "mainnet",
   "createdAt": "2026-03-28T08:11:12.091Z"
 }
