@@ -134,7 +134,7 @@ This strategy is well-validated in TradFi (basis trading) and CeFi (funding rate
 
 ## 8. Repository
 
-`github.com/[your-handle]/dn-funding-vault`
+`github.com/Glayzz/dn-funding-vault`
 
 - `/src/vault-manager.ts` — manager bot (TypeScript)
 - `/src/setup-vault.ts` — vault initialization script
