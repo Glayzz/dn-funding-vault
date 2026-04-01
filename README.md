@@ -1,29 +1,31 @@
-# Delta-Neutral SOL Funding Rate Arbitrage Vault
-### Ranger Build-A-Bear Hackathon — Main Track Submission
+# DN Funding Rate Vault
+
+**Delta-Neutral SOL Funding Rate Arbitrage Vault**
+Built for the Ranger Build-A-Bear Hackathon 2026 — Main Track + Drift Side Track
 
 ---
 
-## Executive Summary
+## Overview
 
-This vault captures the persistent positive funding rate premium on SOL-PERP on Drift Protocol, while maintaining zero directional market exposure. Depositors earn yield regardless of whether SOL goes up or down — the only source of return is the funding rate differential.
+This vault captures SOL-PERP funding rate payments on Drift Protocol while maintaining zero net market exposure. It holds equal long spot SOL and short SOL-PERP positions, making returns entirely independent of SOL price direction.
 
-**Key stats (backtested, 2023–2025):**
-- **CAGR:** ~35–55% depending on funding regime
-- **Sharpe Ratio:** >2.0
-- **Max Drawdown:** <3% (nearly all from fees, not market moves)
-- **Delta:** ~0 at all times
+**Live Vault Address (Solana Mainnet):**
+`88jtDH1zGT4DCJtQveLeUAEhoHgjtdRB8twUFSSMAKBm`
 
 ---
 
-## 1. The Opportunity
+## 1. Strategy Thesis
 
-Perpetual futures on Solana DeFi venues charge a **funding rate** every hour. When the market is bullish (longs > shorts), longs pay shorts. Historically, SOL-PERP on Drift has been positive-funded **~70–80% of the time**, meaning short positions collect a steady stream of payments.
+Perpetual futures traders pay a funding rate every hour to maintain their positions. On Drift Protocol, SOL-PERP has historically been positive-funded ~70% of the time, with annualised rates ranging from 30% to over 120% during bull regimes.
 
-The problem: holding a raw short bleeds money if SOL rallies. The solution: **hedge the short with equal spot exposure**, creating a delta-neutral position that earns funding with no directional risk.
+This vault systematically captures those payments by:
+- Holding 47.5% of capital as **long spot SOL** (via Jupiter)
+- Holding 47.5% as a **short SOL-PERP position** (via Drift Protocol)
+- Keeping 5% idle in **USDC** for gas and redemptions
 
----
+Net delta = 0. The vault earns funding regardless of price direction.
 
-## 2. Strategy Architecture
+## Strategy Architecture
 
 ```
 User deposits USDC
@@ -52,43 +54,77 @@ User deposits USDC
 1. Funding rate payments received on the short SOL-PERP position
 2. Potential basis convergence on the spot-perp spread
 
-**Ranger Adaptors Used:**
-- `DRIFT_ADAPTOR_PROGRAM_ID` — for the SOL-PERP short on Drift
-- `JUPITER_ADAPTOR_PROGRAM_ID` — for USDC → SOL spot swap
+---
+
+## 2. How It Operates on Ranger Earn
+
+The vault is initialized using the **Ranger Earn SDK** (`@voltr/vault-sdk`) with:
+- **Drift Protocol Adaptor** for the perpetual short
+- **Jupiter Adaptor** for the spot long swap
+- A **TypeScript manager bot** running on a VPS with 60-second polling
+
+The bot:
+- Monitors the funding rate every 60 seconds
+- Auto-rebalances when net delta drifts beyond ±2%
+- Exits the perp short if annualised funding drops below 2% APR
+- Harvests management and performance fees automatically
 
 ---
 
 ## 3. Risk Management
 
-### 3.1 Delta Management
-The vault rebalances when net delta drifts beyond ±2% of target. This can occur due to:
-- Funding rate payments changing the short notional
-- SOL price movement affecting the relative weight
+| Layer | Threshold | Action |
+|-------|-----------|--------|
+| Delta control | ±2% drift | Auto-rebalance immediately |
+| Funding threshold | <2% APR | Exit perp position |
+| Leverage cap | 2× max | Hard-coded limit on Drift |
+| Soft circuit breaker | 5% NAV drawdown | Pause new deposits |
+| Hard circuit breaker | 10% NAV drawdown | Close all positions, return to USDC |
+| Buffer reserve | 5% USDC always idle | Gas costs + instant redemptions |
 
-**Rebalancing trigger:** `|current_short_notional - target| / target > 2%`
-
-### 3.2 Negative Funding Protection
-The bot monitors the 1-hour funding rate continuously. If the annualised rate drops below **+2% APR**, the perp short is reduced or closed, preventing the vault from paying funding instead of earning it.
-
-Exit condition: `hourly_rate × 24 × 365 < 0.02`
-
-### 3.3 Drawdown Limits
-- **Soft limit:** If vault NAV drops >5% from high-water mark, pause new deposits and reduce leverage
-- **Hard limit:** If vault NAV drops >10% from high-water mark, close all positions and sit in USDC
-
-### 3.4 Liquidation Protection
-- Maximum leverage on Drift short: **2x** (well above liquidation threshold)
-- Idle buffer maintained at 5% for margin top-ups if needed
-- Health factor monitoring via Drift account data
-
-### 3.5 Smart Contract Risk
-- Ranger Earn is audited (see Ranger security docs)
-- Drift Protocol is one of Solana's most battle-tested venues (>$500M TVL)
-- No custom on-chain programs — vault uses existing, audited adaptors only
+Zero custom smart contracts. Only audited Ranger Earn and Drift Protocol infrastructure.
 
 ---
 
-## 4. Fee Structure
+## 4. Backtest Results (2023–2025)
+
+- **CAGR:** 35.1%
+- **Sharpe Ratio:** 48.88
+- **Max Drawdown:** 0.5%
+- **Total Return:** 82.6% ($100K → $182,602)
+- **Data Points:** 17,520 hourly observations
+- **Total Trades:** 30 rebalancing events over 2 years
+- **Fees applied:** 1.5% annual management fee + 10% performance fee + realistic swap/perp costs
+
+See `backtest_results.png` for full equity curve, funding rate chart, and position state visualization.
+
+---
+
+## 5. Deployment
+
+The vault was built and deployed during the hackathon window (March 9 – April 6, 2026):
+
+- **Strategy research and backtest development** — funding rate data analysis, regime simulation
+- **Mainnet deployment** — vault initialized on Solana Mainnet Beta using Ranger Earn SDK
+- **Adaptor integration** — Drift Protocol adaptor and Jupiter adaptor configured
+- **Manager bot deployed** — TypeScript bot running on VPS with live monitoring
+- **Post-hackathon roadmap** — Scale to full TVL with Ranger seed funding, list on Ranger Earn public marketplace
+
+---
+
+## 6. Comparable Strategies
+
+This strategy is well-validated in TradFi (basis trading) and CeFi (funding rate bots on Binance/Bybit). What makes this novel:
+
+- Fully **on-chain and non-custodial** via Ranger Earn
+- **Publicly auditable positions** — all trades verifiable on Solana Explorer
+- **Permissionless deposits** — anyone can allocate capital
+- **Zero counterparty risk** — no CEX dependency
+
+---
+
+
+## 7. Fee Structure
 
 | Fee | Rate | Notes |
 |-----|------|-------|
@@ -100,44 +136,24 @@ Exit condition: `hourly_rate × 24 × 365 < 0.02`
 
 ---
 
-## 5. Operations
+## 8. Repository Structure
 
-The vault manager bot runs 24/7 and performs:
-- **Every 60 seconds:** Check funding rate and delta drift
-- **On drift >2%:** Rebalance spot/perp legs
-- **Daily:** Harvest management fees
-- **On rate flip:** Exit or reduce perp position
-
-Infrastructure: single VPS, Node.js + TypeScript, Ranger SDK.
-
----
-
-## 6. Production Path
-
-1. **Week 1:** Devnet testing, funding rate monitoring live
-2. **Week 2:** Mainnet deployment with $10k seed capital
-3. **Post-hackathon:** Scale to $500k+ with Ranger seed funding
-4. **6-month target:** List on Ranger Earn marketplace with public UI
+```
+dn-funding-vault/
+├── src/
+│   ├── vault-manager.ts     # Manager bot (60s polling, auto-rebalance, harvest)
+│   └── setup-vault.ts       # Vault initialization script
+├── backtest.py              # Python backtesting engine
+├── backtest_results.png     # Equity curve + funding rate chart
+├── backtest_results.json    # Raw backtest output data
+├── vault-config.json        # On-chain vault configuration (mainnet)
+├── STRATEGY.md              # Full strategy documentation
+└── README.md                # This file
+```
 
 ---
 
-## 7. Comparable Strategies
-
-This strategy is well-validated in TradFi (basis trading) and CeFi (funding rate bots on Binance/Bybit). What makes this novel:
-
-- Fully **on-chain and non-custodial** via Ranger Earn
-- Publicly auditable positions
-- **Permissionless deposits** — anyone can participate
-- Yield compounds automatically
-
 ---
 
-## 8. Repository
-
-`github.com/Glayzz/dn-funding-vault`
-
-- `/src/vault-manager.ts` — manager bot (TypeScript)
-- `/src/setup-vault.ts` — vault initialization script
-- `/backtest.py` — Python backtesting engine
-- `/backtest_results.png` — equity curve and results
-- `README.md` — this document
+*Built by Glayzz for Ranger Build-A-Bear Hackathon 2026*
+*Vault: 88jtDH1zGT4DCJtQveLeUAEhoHgjtdRB8twUFSSMAKBm*
