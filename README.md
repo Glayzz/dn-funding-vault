@@ -82,6 +82,32 @@ The bot:
 | Hard circuit breaker | 10% NAV drawdown | Close all positions, return to USDC |
 | Buffer reserve | 5% USDC always idle | Gas costs + instant redemptions |
 
+### 3.1 Delta Management
+The vault rebalances when net delta drifts beyond ±2% of target. This can occur due to:
+- Funding rate payments changing the short notional
+- SOL price movement affecting the relative weight
+
+**Rebalancing trigger:** `|current_short_notional - target| / target > 2%`
+
+### 3.2 Negative Funding Protection
+The bot monitors the 1-hour funding rate continuously. If the annualised rate drops below **+2% APR**, the perp short is reduced or closed, preventing the vault from paying funding instead of earning it.
+
+Exit condition: `hourly_rate × 24 × 365 < 0.02`
+
+### 3.3 Drawdown Limits
+- **Soft limit:** If vault NAV drops >5% from high-water mark, pause new deposits and reduce leverage
+- **Hard limit:** If vault NAV drops >10% from high-water mark, close all positions and sit in USDC
+
+### 3.4 Liquidation Protection
+- Maximum leverage on Drift short: **2x** (well above liquidation threshold)
+- Idle buffer maintained at 5% for margin top-ups if needed
+- Health factor monitoring via Drift account data
+
+### 3.5 Smart Contract Risk
+- Ranger Earn is audited (see Ranger security docs)
+- Drift Protocol is one of Solana's most battle-tested venues (>$500M TVL)
+- No custom on-chain programs — vault uses existing, audited adaptors only
+
 Zero custom smart contracts. Only audited Ranger Earn and Drift Protocol infrastructure.
 
 ---
