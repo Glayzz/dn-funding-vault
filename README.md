@@ -49,6 +49,8 @@ User deposits USDC
 │  └─────────────────────┘    │
 └─────────────────────────────┘
 ```
+**YYield Source:**
+Funnding rate payments received on the short SOL-PERP position.
 
 ---
 
