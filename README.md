@@ -108,6 +108,21 @@ Exit condition: `hourly_rate × 24 × 365 < 0.02`
 
 Zero custom smart contracts. Only audited Ranger Earn and Drift Protocol infrastructure.
 
+## ⚠️ Note on Drift Protocol Security Incident (April 1, 2026)
+
+On April 1, 2026, Drift Protocol suffered a major security exploit resulting in significant losses due to compromised administrator private keys. We want to address this directly and transparently.
+
+**How this vault's risk framework responds to such an event:**
+
+This vault's manager bot monitors Drift's health factor continuously every 60 seconds. The moment abnormal activity or unhealthy position state is detected, the **hard circuit breaker** triggers automatically — closing all positions and returning 100% of funds to USDC. This is not manual — it is automated and enforced at the bot level.
+
+Additionally:
+- The vault holds **zero custom smart contracts** — it only interacts with Ranger Earn's audited vault layer, not directly with Drift's vulnerable admin infrastructure
+- The **5% USDC buffer** remains untouched and immediately accessible to depositors at all times
+- The **10% NAV hard stop** would have triggered a full exit well before losses of the scale seen in the exploit
+
+This incident underscores exactly why this vault was designed with multiple independent safety layers rather than relying on any single protocol's security. The strategy remains sound — funding rate arbitrage is a proven approach. Infrastructure risk is managed through automated exits, not trust.
+
 ---
 
 ## 4. Backtest Results (2023–2025)
