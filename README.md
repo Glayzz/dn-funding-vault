@@ -50,10 +50,6 @@ User deposits USDC
 └─────────────────────────────┘
 ```
 
-**Yield Sources:**
-1. Funding rate payments received on the short SOL-PERP position
-2. Potential basis convergence on the spot-perp spread
-
 ---
 
 ## 2. How It Operates on Ranger Earn
@@ -176,8 +172,6 @@ dn-funding-vault/
 ├── STRATEGY.md              # Full strategy documentation
 └── README.md                # This file
 ```
-
----
 
 ---
 
