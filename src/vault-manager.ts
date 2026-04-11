@@ -98,7 +98,7 @@ async function getFlashFundingRateApr(connection: Connection): Promise<number> {
   try {
     const info = await connection.getAccountInfo(FLASH_SOL_CUSTODY);
     if (!info) throw new Error("Flash SOL custody account not found");
-    const raw = info.data.readBigInt64LE(241);
+    const raw = info.data.readBigInt64LE(296);
     const hourlyDecimal = Number(raw) / 1_000_000;
     return hourlyDecimal * 24 * 365;
   } catch (err) {
