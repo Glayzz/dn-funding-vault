@@ -1,9 +1,12 @@
 /**
- * Vault Setup Script — Devnet Deployment
+ * Vault Setup Script
  * Run once to create and configure the funding rate arb vault on Ranger Earn
  *
  * Usage:
  *   npx ts-node src/setup-vault.ts
+ *
+ * Note: This vault uses EOA-based execution against Flash Trade directly.
+ * No adaptor is registered — Flash Trade perp calls are made by the manager EOA.
  */
 
 import {
@@ -17,10 +20,7 @@ import { VoltrClient } from "@voltr/vault-sdk";
 import BN from "bn.js";
 import * as fs from "fs";
 
-// Drift adaptor program ID (from Ranger docs)
-const DRIFT_ADAPTOR_PROGRAM_ID = new PublicKey("EBN93eXs5fHGBABuajQqdsKRkCgaqtJa8vEFD6vKXiP");
-
-// Devnet USDC mint
+// USDC mint (mainnet + devnet)
 const USDC_MINT = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 
 const RPC_URL = process.env.RPC_URL ?? "https://api.devnet.solana.com";
@@ -37,7 +37,8 @@ async function setupVault(): Promise<void> {
   const manager = loadKeypair("./manager.json");
   const vault = Keypair.generate();
 
-  console.log("Setting up Delta-Neutral Funding Rate Vault on DEVNET...");
+  console.log("Setting up Delta-Neutral Funding Rate Vault...");
+  console.log(`  Network:       ${RPC_URL.includes("devnet") ? "DEVNET" : "MAINNET"}`);
   console.log(`  Vault address: ${vault.publicKey.toBase58()}`);
   console.log(`  Admin:         ${admin.publicKey.toBase58()}`);
   console.log(`  Manager:       ${manager.publicKey.toBase58()}`);
@@ -45,7 +46,7 @@ async function setupVault(): Promise<void> {
   const client = new VoltrClient(connection, admin);
 
   // Step 1: Initialize vault
-  console.log("\n[1/4] Initializing vault...");
+  console.log("\n[1/3] Initializing vault...");
   try {
     const initVaultIx = await client.createInitializeVaultIx(
       {
@@ -62,7 +63,7 @@ async function setupVault(): Promise<void> {
           withdrawalWaitingPeriod: new BN(0),
         },
         name: "DN Funding Rate Vault",
-        description: "Delta-neutral SOL funding rate arb",
+        description: "Delta-neutral SOL funding rate arbitrage via Flash Trade + Jupiter",
       },
       {
         vault: vault.publicKey,
@@ -75,16 +76,17 @@ async function setupVault(): Promise<void> {
 
     const tx1 = new Transaction().add(initVaultIx);
     const sig1 = await sendAndConfirmTransaction(connection, tx1, [admin, vault]);
+    const cluster = RPC_URL.includes("devnet") ? "?cluster=devnet" : "";
     console.log(`  Vault initialized: ${sig1}`);
-    console.log(`  Explorer: https://explorer.solana.com/tx/${sig1}?cluster=devnet`);
+    console.log(`  Explorer: https://explorer.solana.com/tx/${sig1}${cluster}`);
   } catch (err: any) {
     console.error("  Error initializing vault:", err.message);
-    console.log("  Tip: Make sure admin.json has devnet SOL. Run: solana airdrop 2 --keypair admin.json");
+    console.log("  Tip: Make sure admin.json has SOL. Run: solana airdrop 2 --keypair admin.json --url devnet");
     process.exit(1);
   }
 
   // Step 2: Create LP token metadata
-  console.log("\n[2/4] Creating LP token metadata...");
+  console.log("\n[2/3] Creating LP token metadata...");
   try {
     const metadataIx = await client.createCreateLpMetadataIx(
       {
@@ -105,37 +107,22 @@ async function setupVault(): Promise<void> {
     console.log("  LP metadata skipped (non-critical):", err.message);
   }
 
-  // Step 3: Add Drift adaptor
-  console.log("\n[3/4] Adding Drift adaptor...");
-  try {
-    const addAdaptorIx = await client.createAddAdaptorIx({
-      vault: vault.publicKey,
-      payer: admin.publicKey,
-      admin: admin.publicKey,
-      adaptorProgram: DRIFT_ADAPTOR_PROGRAM_ID,
-    });
-    const tx3 = new Transaction().add(addAdaptorIx);
-    const sig3 = await sendAndConfirmTransaction(connection, tx3, [admin]);
-    console.log(`  Drift adaptor added: ${sig3}`);
-  } catch (err: any) {
-    console.log("  Adaptor step skipped:", err.message);
-  }
-
-  // Step 4: Save config
-  console.log("\n[4/4] Saving configuration...");
+  // Step 3: Save config
+  console.log("\n[3/3] Saving configuration...");
   const config = {
     vaultAddress: vault.publicKey.toBase58(),
     adminPubkey: admin.publicKey.toBase58(),
     managerPubkey: manager.publicKey.toBase58(),
     assetMint: USDC_MINT.toBase58(),
-    network: "devnet",
+    network: RPC_URL.includes("devnet") ? "devnet" : "mainnet",
     createdAt: new Date().toISOString(),
   };
   fs.writeFileSync("./vault-config.json", JSON.stringify(config, null, 2));
   console.log("  Config saved to vault-config.json");
 
-  console.log("\n Vault setup complete!");
-  console.log(`  Vault: https://explorer.solana.com/address/${vault.publicKey.toBase58()}?cluster=devnet`);
+  const cluster = RPC_URL.includes("devnet") ? "?cluster=devnet" : "";
+  console.log("\n✓ Vault setup complete!");
+  console.log(`  https://explorer.solana.com/address/${vault.publicKey.toBase58()}${cluster}`);
 }
 
 setupVault().catch(console.error);
